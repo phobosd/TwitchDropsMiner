@@ -85,6 +85,12 @@ class SettingsUpdate(BaseModel):
     minimum_refresh_interval_minutes: int | None = None
     discord_webhook_url: str | None = None
     discord_remove_webhook: StrictBool | None = None
+    steam_id64: str | None = None
+    steam_api_key: str | None = None
+    steam_auto_watch: StrictBool | None = None
+    steam_prioritize: StrictBool | None = None
+    steam_sync_time: str | None = None
+    steam_sync_timezone: str | None = None
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
     inventory_filters: dict | None = None
@@ -111,6 +117,18 @@ class SettingsUpdate(BaseModel):
 
 class ProxyVerifyRequest(BaseModel):
     proxy: str
+
+
+class SteamPreviewRequest(BaseModel):
+    steam_id64: str = ""
+    steam_api_key: str = ""
+
+
+class SteamImportRequest(BaseModel):
+    steam_id64: str = ""
+    steam_api_key: str = ""
+    steam_auto_watch: StrictBool | None = None
+    steam_prioritize: StrictBool | None = None
 
 
 class DiscordTestRequest(BaseModel):
@@ -363,6 +381,97 @@ async def test_telegram(request: TelegramTestRequest):
             "success": False,
             "message": f"Telegram error: {str(e)}"
         }
+
+
+@app.post("/api/steam/preview")
+async def steam_preview(request: SteamPreviewRequest):
+    """Fetch the Steam library and report owned games with active drop campaigns."""
+    from src.services.steam_service import (
+        SteamError,
+        fetch_owned_games,
+        match_available_games,
+    )
+    from src.web.managers.settings import STEAM_KEY_MASK
+
+    if gui_manager is None:
+        raise HTTPException(status_code=503, detail="GUI not initialized")
+
+    stored = gui_manager.settings.settings
+    steam_id64 = (request.steam_id64 or "").strip() or str(
+        getattr(stored, "steam_id64", "") or ""
+    )
+    api_key = (request.steam_api_key or "").strip()
+    if not api_key or api_key == STEAM_KEY_MASK:
+        api_key = str(getattr(stored, "steam_api_key", "") or "")
+
+    try:
+        owned = await fetch_owned_games(
+            api_key, steam_id64, diagnostics=getattr(twitch_client, "diagnostics", None)
+        )
+    except SteamError as exc:
+        return {"success": False, "error": exc.code}
+
+    available = gui_manager.settings.get_available_games()
+    matched = match_available_games([game.name for game in owned], available)
+    return {
+        "success": True,
+        "owned_count": len(owned),
+        "available_count": len(available),
+        "matched": matched,
+    }
+
+
+@app.post("/api/steam/import")
+async def steam_import(request: SteamImportRequest):
+    """Persist Steam credentials/flags, then import owned games with active drops."""
+    from src.services.steam_service import (
+        SteamError,
+        fetch_owned_games,
+        match_available_games,
+    )
+    from src.web.managers.settings import STEAM_KEY_MASK
+
+    if gui_manager is None:
+        raise HTTPException(status_code=503, detail="GUI not initialized")
+
+    updates: dict = {"steam_id64": (request.steam_id64 or "").strip()}
+    api_key = (request.steam_api_key or "").strip()
+    if api_key and api_key != STEAM_KEY_MASK:
+        updates["steam_api_key"] = api_key
+    if request.steam_auto_watch is not None:
+        updates["steam_auto_watch"] = request.steam_auto_watch
+    if request.steam_prioritize is not None:
+        updates["steam_prioritize"] = request.steam_prioritize
+    try:
+        gui_manager.settings.update_settings(updates)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="invalid_settings") from None
+
+    stored = gui_manager.settings.settings
+    steam_id64 = str(getattr(stored, "steam_id64", "") or "")
+    stored_key = str(getattr(stored, "steam_api_key", "") or "")
+
+    try:
+        owned = await fetch_owned_games(
+            stored_key, steam_id64, diagnostics=getattr(twitch_client, "diagnostics", None)
+        )
+    except SteamError as exc:
+        return {"success": False, "error": exc.code}
+
+    names = [game.name for game in owned]
+    playtime = {game.name: game.playtime_minutes for game in owned}
+    matched = match_available_games(names, gui_manager.settings.get_available_games())
+    added = gui_manager.settings.apply_steam_import(
+        names, matched, playtime=playtime, last_sync=datetime.now(timezone.utc).isoformat()
+    )
+    return {
+        "success": True,
+        "added": added,
+        "matched": matched,
+        "settings": gui_manager.settings.get_settings(),
+    }
+
+
 @app.get("/api/version")
 async def get_version():
     """Get current application version and check for updates"""

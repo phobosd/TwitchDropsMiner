@@ -402,6 +402,7 @@
                             <button id="select-all-btn" class="small-btn">Select All</button>
                             <button id="deselect-all-btn" class="small-btn">Deselect All</button>
                             <button id="add-game-btn" class="small-btn">Add Game</button>
+                            <button id="steam-import-btn" class="small-btn">Import from Steam</button>
                         </div>
                     </div>
 
@@ -416,6 +417,40 @@
                             <div id="available-games-list" class="checkbox-list"></div>
                         </div>
                     </div>
+                    <p id="steam-status" class="help-text" role="status" aria-live="polite"></p>
+                </section>
+
+                <section class="settings-section">
+                    <h2 id="settings-steam-header">Steam Auto-Check</h2>
+                    <p id="settings-steam-help" class="help-text">Once a day, check your Steam library and add owned
+                        games that currently have Twitch drops. Pick from the lists below so the schedule can't be
+                        broken by a typo.</p>
+
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="steam-auto-watch-toggle" />
+                        <span id="steam-auto-watch-label">Check my Steam library automatically (daily)</span>
+                    </label>
+
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="steam-prioritize-toggle" />
+                        <span id="steam-prioritize-label">Prioritize my Steam games (most-played owned games first)</span>
+                    </label>
+
+                    <div class="steam-schedule">
+                        <div class="steam-schedule-field">
+                            <label id="steam-time-label" for="steam-sync-hour">Time</label>
+                            <div class="steam-time-selects">
+                                <select id="steam-sync-hour"></select>
+                                <select id="steam-sync-minute"></select>
+                            </div>
+                        </div>
+                        <div class="steam-schedule-field">
+                            <label id="steam-timezone-label" for="steam-sync-timezone">Timezone</label>
+                            <select id="steam-sync-timezone"></select>
+                        </div>
+                    </div>
+                    <p id="steam-next-run" class="help-text" role="status" aria-live="polite"></p>
+                    <p id="steam-schedule-error" class="help-text" role="alert" hidden></p>
                 </section>
 
                 <section class="settings-section">

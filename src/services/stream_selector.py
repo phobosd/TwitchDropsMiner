@@ -7,11 +7,20 @@ from src.models.game import Game
 
 class StreamSelector:
     def _get_wanted_game_tree(
-        self, settings: Settings, campaigns: list[DropsCampaign]
+        self,
+        settings: Settings,
+        campaigns: list[DropsCampaign],
+        *,
+        include_unlinked: bool = False,
     ) -> list[dict]:
         """
         Get the hierarchical tree of wanted items (Games -> Campaigns -> Drops -> Benefits).
         Ignoring 'can earn within' time constraint.
+
+        When ``include_unlinked`` is set (UI use), campaigns that are otherwise
+        earnable but missing an account link are still included, flagged with
+        ``needs_account_link`` and their ``link_url``. Mining uses the default
+        (eligible-only) path so unlinked campaigns are never watched.
         """
         wanted_games = []
         games_to_watch = settings.games_to_watch
@@ -32,7 +41,7 @@ class StreamSelector:
                 if game_obj is None:
                     game_obj = campaign.game
 
-                if not campaign.can_earn_within(next_hour):
+                if not campaign.can_earn_within(next_hour, ignore_eligibility=include_unlinked):
                     continue
 
                 wanted_drops = []
@@ -51,14 +60,18 @@ class StreamSelector:
                         wanted_drops.append({"name": drop.name, "benefits": filtered_benefits})
 
                 if len(wanted_drops) > 0:
-                    wanted_campaigns.append(
-                        {
-                            "id": campaign.id,
-                            "name": campaign.name,
-                            "url": campaign.campaign_url,
-                            "drops": wanted_drops,
-                        }
-                    )
+                    node = {
+                        "id": campaign.id,
+                        "name": campaign.name,
+                        "url": campaign.campaign_url,
+                        "drops": wanted_drops,
+                    }
+                    linked = getattr(campaign, "linked", None)
+                    has_badge_or_emote = getattr(campaign, "has_badge_or_emote", None)
+                    if include_unlinked and linked is False and not has_badge_or_emote:
+                        node["needs_account_link"] = True
+                        node["link_url"] = getattr(campaign, "link_url", "")
+                    wanted_campaigns.append(node)
 
             if len(wanted_campaigns) > 0:
                 wanted_games.append(
@@ -77,7 +90,8 @@ class StreamSelector:
         self, settings: Settings, campaigns: list[DropsCampaign]
     ) -> list[dict]:
         return [
-            {**game, "game_obj": None} for game in self._get_wanted_game_tree(settings, campaigns)
+            {**game, "game_obj": None}
+            for game in self._get_wanted_game_tree(settings, campaigns, include_unlinked=True)
         ]
 
     def get_wanted_games(self, settings: Settings, campaigns: list[DropsCampaign]) -> list[Game]:

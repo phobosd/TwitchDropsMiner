@@ -12,6 +12,7 @@ and [Using the dashboard](usage.md).
 | [Installation](installation.md) | Docker, Compose, source setup, persistent data, and upgrades |
 | [Twitch login](authentication.md) | Dashboard browser login, existing sessions, logout, and automatic renewal |
 | [Using the dashboard](usage.md) | Game priorities, campaigns, inventory, ignored rewards, and drop history |
+| [Steam integration](steam-integration.md) | Import your Steam library, daily auto-check, playtime priority, and account-link hints |
 | [Dashboard access](dashboard-access.md) | Optional password protection, reverse proxies, and password recovery |
 | [Telegram notifications](notifications.md) | Bot setup, testing, saved credentials, and disabling alerts |
 | [Troubleshooting](troubleshooting.md) | Login, renewal, progress, connection, and cache problems |

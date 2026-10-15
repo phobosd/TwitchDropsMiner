@@ -173,6 +173,55 @@ class TestWantedItems(unittest.TestCase):
         # Verify
         self.assertEqual(len(result), 0)
 
+    def test_unlinked_campaign_shown_in_queue_but_not_mined(self):
+        self.twitch.settings.games_to_watch = ["Brawlhalla"]
+        self.twitch.settings.mining_benefits = {"DIRECT_ENTITLEMENT": True}
+
+        c = MagicMock()
+        c.id = "c_brawl"
+        c.name = "Brawllhallowen"
+        c.campaign_url = "http://camp"
+        c.game = Game({"id": 999, "name": "Brawlhalla", "boxArtURL": "http://img"})
+        c.linked = False
+        c.has_badge_or_emote = False
+        c.link_url = "https://link.example/connect"
+        c.can_earn_within = MagicMock(
+            side_effect=lambda stamp, ignore_eligibility=False: ignore_eligibility
+            or bool(c.linked)
+        )
+
+        d = MagicMock(spec=TimedDrop)
+        d.name = "Azoth CCv2"
+        d.is_claimed = False
+        d.ends_at = datetime.max.replace(tzinfo=timezone.utc)
+        d.get_wanted_unclaimed_benefits = TimedDrop.get_wanted_unclaimed_benefits.__get__(
+            d, TimedDrop
+        )
+        b = MagicMock(spec=Benefit)
+        b.name = "Azoth CCv2"
+        b.type = BenefitType.DIRECT_ENTITLEMENT
+        b.is_wanted = Benefit.is_wanted.__get__(b, Benefit)
+        d.benefits = [b]
+        c.drops = [d]
+
+        self.twitch.inventory = [c]
+
+        # UI tree surfaces the campaign with a "connect account" hint.
+        tree = self.gui.get_wanted_game_tree()
+        self.assertEqual(len(tree), 1)
+        campaigns = tree[0]["campaigns"]
+        self.assertEqual(len(campaigns), 1)
+        self.assertTrue(campaigns[0]["needs_account_link"])
+        self.assertEqual(campaigns[0]["link_url"], "https://link.example/connect")
+
+        # Mining stays eligible-only, so the unlinked campaign is not watched.
+        self.assertEqual(
+            self.gui._stream_selector.get_wanted_games(
+                self.twitch.settings, self.twitch.inventory
+            ),
+            [],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -12,6 +12,7 @@ build/
 # Virtual Environment
 env/
 venv/
+.venv/
 ENV/
 
 # IDEs

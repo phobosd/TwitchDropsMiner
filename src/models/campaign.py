@@ -258,11 +258,13 @@ class DropsCampaign:
             drop._base_can_earn() for drop in self.drops
         )
 
-    def can_earn_within(self, stamp: datetime) -> bool:
+    def can_earn_within(self, stamp: datetime, *, ignore_eligibility: bool = False) -> bool:
         # Same as can_earn, but doesn't check the channel
-        # and uses a future timestamp to see if we can earn this campaign later
+        # and uses a future timestamp to see if we can earn this campaign later.
+        # ``ignore_eligibility`` lets the UI still surface campaigns that only
+        # need an account link, so the user can be told to connect one.
         return (
-            self.eligible
+            (ignore_eligibility or self.eligible)
             and self._valid
             and self.ends_at > datetime.now(timezone.utc)
             and self.starts_at < stamp

@@ -83,6 +83,14 @@ if __name__ == "__main__":
         logger.info("Starting web server on http://0.0.0.0:8080")
         web_server_task = asyncio.create_task(webapp.run_server(host="0.0.0.0", port=8080))
 
+        # Opt-in background task: import Steam library games with active drops
+        from src.services.steam_watcher import SteamWatcher
+
+        steam_watcher = SteamWatcher(
+            client.gui.settings, diagnostics=getattr(client, "diagnostics", None)
+        )
+        steam_watcher.start()
+
         loop = asyncio.get_running_loop()
         if sys.platform == "linux":
             logger.debug("Setting up signal handlers for SIGINT and SIGTERM")
@@ -110,6 +118,9 @@ if __name__ == "__main__":
                 loop.remove_signal_handler(signal.SIGTERM)
             logger.info("Notifying client of exit")
             client.print(_.t["gui"]["status"]["exiting"])
+            # Stop the Steam auto-watch background task
+            logger.info("Stopping Steam auto-watch")
+            await steam_watcher.stop()
             # Shutdown web server
             if web_server_task and not web_server_task.done():
                 logger.info("Shutting down web server")

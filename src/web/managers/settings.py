@@ -6,12 +6,23 @@ import asyncio
 import copy
 import logging
 from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from src.config.settings import InventoryFilterSettings, MiningHoursSettings
 from src.i18n.translator import _
 from src.models.game import Game
 from src.services.discord_service import DiscordNotifier
+from src.services.steam_service import normalize_game_name
+from src.services.steam_watcher import (
+    DEFAULT_SYNC_TIME,
+    DEFAULT_SYNC_TIMEZONE,
+    SUPPORTED_TIMEZONES,
+    is_valid_sync_time,
+    next_scheduled,
+    parse_sync_time,
+    resolve_timezone,
+)
 from src.utils import DropIgnorePolicy
 
 
@@ -21,6 +32,7 @@ logger = logging.getLogger("TwitchDrops")
 # Never echo the real credential through the unauthenticated web API/socket.
 TELEGRAM_TOKEN_MASK = "••••••••"
 DISCORD_WEBHOOK_MASK = "••••••••"
+STEAM_KEY_MASK = "••••••••"
 
 
 def _format_mining_hours(value: Any) -> str:
@@ -56,6 +68,11 @@ class SettingsManager:
         self._on_change = on_change
         self._available_games: list[str] = []
 
+    @property
+    def settings(self) -> Settings:
+        """Return the underlying settings object."""
+        return self._settings
+
     def get_settings(self, legacy_show_not_linked: bool | None = None) -> dict[str, Any]:
         """Get current settings for display.
 
@@ -78,6 +95,26 @@ class SettingsManager:
         configured_token = bool(settings.get("telegram_bot_token"))
         settings["telegram_configured"] = configured_token
         settings["telegram_bot_token"] = TELEGRAM_TOKEN_MASK if configured_token else ""
+        # Never echo the Steam Web API key; expose only a configured flag/mask.
+        configured_steam = bool(settings.get("steam_api_key"))
+        settings["steam_configured"] = configured_steam
+        settings["steam_api_key"] = STEAM_KEY_MASK if configured_steam else ""
+        # The full owned-games list can be large and is only used server-side for
+        # prioritization; expose the count instead of the list.
+        owned_games = settings.pop("steam_owned_games", []) or []
+        settings["steam_owned_count"] = len(owned_games)
+        settings.pop("steam_playtime", None)
+        # Constrained choices for the schedule UI, plus a preview of the next run.
+        timezones = list(SUPPORTED_TIMEZONES)
+        current_zone = settings.get("steam_sync_timezone") or DEFAULT_SYNC_TIMEZONE
+        if current_zone not in timezones:
+            timezones.insert(0, current_zone)
+        settings["steam_timezones"] = timezones
+        hours, minutes = parse_sync_time(settings.get("steam_sync_time") or DEFAULT_SYNC_TIME)
+        tz = resolve_timezone(current_zone)
+        settings["steam_next_run"] = next_scheduled(
+            datetime.now(timezone.utc), tz, hours, minutes
+        ).isoformat()
         # TODO(remove in 1.3.x): Retain this POST-only echo long enough for stale
         # pre-versioned frontends to age out; it never survives a page reload.
         if legacy_show_not_linked is not None:
@@ -170,6 +207,38 @@ class SettingsManager:
                 self.check_and_update_setting(
                     "telegram_bot_token", new_token
                 )
+        if "steam_id64" in settings_data:
+            self.check_and_update_setting(
+                "steam_id64", str(settings_data.get("steam_id64") or "").strip()
+            )
+        if "steam_api_key" in settings_data:
+            new_key = str(settings_data.get("steam_api_key") or "").strip()
+            if new_key and new_key != STEAM_KEY_MASK:
+                self.check_and_update_setting("steam_api_key", new_key)
+        if "steam_auto_watch" in settings_data:
+            self.check_and_update_setting(
+                "steam_auto_watch", bool(settings_data.get("steam_auto_watch"))
+            )
+        if "steam_prioritize" in settings_data:
+            previous_prioritize = getattr(self._settings, "steam_prioritize", False)
+            self.check_and_update_setting(
+                "steam_prioritize", bool(settings_data.get("steam_prioritize"))
+            )
+            # Turning prioritization on immediately reorders the current watch list.
+            if self._settings.steam_prioritize and not previous_prioritize:
+                should_trigger_update |= self.reorder_steam_first()
+        if "steam_sync_time" in settings_data:
+            value = str(settings_data.get("steam_sync_time") or "").strip()
+            current_time = getattr(self._settings, "steam_sync_time", "")
+            if not is_valid_sync_time(value) and value != current_time:
+                raise ValueError("invalid_steam_sync_time")
+            self.check_and_update_setting("steam_sync_time", value)
+        if "steam_sync_timezone" in settings_data:
+            value = str(settings_data.get("steam_sync_timezone") or "").strip()
+            current_zone = getattr(self._settings, "steam_sync_timezone", "")
+            if value not in SUPPORTED_TIMEZONES and value != current_zone:
+                raise ValueError("invalid_steam_sync_timezone")
+            self.check_and_update_setting("steam_sync_timezone", value)
         if "telegram_chat_id" in settings_data:
             self.check_and_update_setting(
                 "telegram_chat_id", settings_data.get("telegram_chat_id") or ""
@@ -236,7 +305,7 @@ class SettingsManager:
         if new_value is None or getattr(self._settings, key, None) == new_value:
             return False
         setattr(self._settings, key, new_value)
-        log_value = TELEGRAM_TOKEN_MASK if key in {"telegram_bot_token", "discord_webhook_url"} else (
+        log_value = TELEGRAM_TOKEN_MASK if key in {"telegram_bot_token", "discord_webhook_url", "steam_api_key"} else (
             log_formatter(new_value) if log_formatter else new_value
         )
         self._log_change(f"Setting changed: {key} = {log_value}")
@@ -258,3 +327,109 @@ class SettingsManager:
         game_names = sorted([g.name for g in games])
         self._available_games = game_names
         asyncio.create_task(self._broadcaster.emit("games_available", {"games": game_names}))
+
+    def get_available_games(self) -> list[str]:
+        """Return the Twitch categories that currently have campaigns."""
+        return list(self._available_games)
+
+    def _reorder_steam_first(
+        self,
+        games: list[str],
+        owned_games: list[str],
+        playtime: dict[str, int] | None = None,
+    ) -> list[str]:
+        """Return ``games`` with Steam-owned titles ahead of the rest.
+
+        Owned games are ordered by total playtime (most played first); ties keep
+        their existing relative order. Non-owned games follow in their original
+        relative order.
+        """
+        owned_keys = {normalize_game_name(name) for name in owned_games if name}
+        playtime_by_key: dict[str, int] = {}
+        for name, minutes in (playtime or {}).items():
+            key = normalize_game_name(name)
+            playtime_by_key[key] = max(playtime_by_key.get(key, 0), int(minutes or 0))
+
+        owned_first = [name for name in games if normalize_game_name(name) in owned_keys]
+        others = [name for name in games if normalize_game_name(name) not in owned_keys]
+        owned_first.sort(
+            key=lambda name: playtime_by_key.get(normalize_game_name(name), 0),
+            reverse=True,
+        )
+        return owned_first + others
+
+    def reorder_steam_first(self) -> bool:
+        """Reorder the watch list so Steam-owned games come first.
+
+        Owned games are ordered by playtime, most played first, using the last
+        synced library. Returns whether the order changed.
+        """
+        if not getattr(self._settings, "steam_prioritize", False):
+            return False
+        owned_games = getattr(self._settings, "steam_owned_games", []) or []
+        if not owned_games:
+            return False
+        current = list(getattr(self._settings, "games_to_watch", []) or [])
+        reordered = self._reorder_steam_first(
+            current, owned_games, getattr(self._settings, "steam_playtime", {})
+        )
+        if reordered == current:
+            return False
+        self._settings.games_to_watch = reordered
+        return True
+
+    def apply_steam_import(
+        self,
+        owned_games: list[str],
+        matched_games: list[str],
+        *,
+        playtime: dict[str, int] | None = None,
+        last_sync: str | None = None,
+    ) -> int:
+        """Record the Steam library and add matched games to the watch list.
+
+        When ``steam_prioritize`` is enabled the resulting list is reordered so
+        owned games stay ahead of the rest, most played first. Persists and
+        broadcasts once.
+
+        Returns the number of games newly added.
+        """
+        previous_watch = list(getattr(self._settings, "games_to_watch", []) or [])
+        previous_owned = getattr(self._settings, "steam_owned_games", []) or []
+        previous_playtime = getattr(self._settings, "steam_playtime", {}) or {}
+        previous_sync = getattr(self._settings, "steam_last_sync", "")
+
+        current = list(previous_watch)
+        existing = {name.lower() for name in current}
+        added: list[str] = []
+        for name in matched_games:
+            if name and name.lower() not in existing:
+                current.append(name)
+                existing.add(name.lower())
+                added.append(name)
+
+        if getattr(self._settings, "steam_prioritize", False):
+            current = self._reorder_steam_first(current, owned_games, playtime)
+
+        self._settings.steam_owned_games = list(owned_games)
+        self._settings.steam_playtime = dict(playtime or {})
+        self._settings.games_to_watch = current
+        if last_sync is not None:
+            self._settings.steam_last_sync = last_sync
+
+        order_changed = current != previous_watch
+        try:
+            self._settings.save()
+        except Exception:
+            self._settings.games_to_watch = previous_watch
+            self._settings.steam_owned_games = previous_owned
+            self._settings.steam_playtime = previous_playtime
+            self._settings.steam_last_sync = previous_sync
+            raise
+
+        if added:
+            self._log_change(f"Steam import added {len(added)} game(s)")
+        asyncio.create_task(self._broadcaster.emit("settings_updated", self.get_settings()))
+        if (added or order_changed) and self._on_change:
+            self._on_change()
+        return len(added)

@@ -41,6 +41,15 @@ Source builds also offer **Settings → Dump diagnosis data** for bug reports. I
 deidentified miner state and recent sanitized API responses in your data volume;
 see [diagnosis data](docs/troubleshooting.md#save-diagnosis-data).
 
+## Steam integration (this fork)
+
+This fork adds an optional Steam integration: import the games you own on Steam that
+currently have Drops, keep your most-played games prioritized, re-check your library
+automatically once a day, and see a "Connect account" warning on campaigns that need
+an account link. It's entirely opt-in and configured in **Settings**.
+
+Read the [Steam integration guide](docs/steam-integration.md) for setup and usage.
+
 ## Quick start
 
 With Docker installed, choose one setup below. Shell examples use Bash

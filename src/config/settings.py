@@ -58,6 +58,15 @@ default_settings = {
         "end": "22:00",
     },
     "proxy": "",
+    "steam_api_key": "",
+    "steam_auto_watch": False,
+    "steam_id64": "",
+    "steam_last_sync": "",
+    "steam_owned_games": [],
+    "steam_playtime": {},
+    "steam_prioritize": False,
+    "steam_sync_time": "00:05",
+    "steam_sync_timezone": "America/Chicago",
     "telegram_bot_token": "",
     "telegram_chat_id": "",
 }
@@ -120,6 +129,15 @@ class Settings:
     mining_benefits: dict[str, bool]
     mining_hours: dict[str, str]
     proxy: str
+    steam_api_key: str
+    steam_auto_watch: bool
+    steam_id64: str
+    steam_last_sync: str
+    steam_owned_games: list[str]
+    steam_playtime: dict[str, int]
+    steam_prioritize: bool
+    steam_sync_time: str
+    steam_sync_timezone: str
     telegram_bot_token: str
     telegram_chat_id: str
 

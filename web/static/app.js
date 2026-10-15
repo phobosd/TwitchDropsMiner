@@ -1308,6 +1308,8 @@ function updateSettingsUI(settings) {
 
     // Update games to watch lists
     renderGamesToWatch();
+    updateSteamStatus(settings);
+    updateSteamScheduleUI(settings);
 
     // Re-render channels list to apply filter based on updated games to watch
     renderChannels();
@@ -1676,6 +1678,322 @@ function addGameFromSearch() {
     }
 }
 
+// ==================== Steam Library Import ====================
+
+function updateSteamStatus(settings) {
+    const statusEl = document.getElementById('steam-status');
+    if (!statusEl) return;
+    const s = state.translations.gui?.settings || {};
+    const prioritizeNote = settings.steam_prioritize
+        ? ' ' + (s.steam_status_prioritize || 'Owned Steam games are kept on top, most played first.')
+        : '';
+    if (settings.steam_auto_watch && settings.steam_configured) {
+        statusEl.textContent = (s.steam_status_auto ||
+            'Auto-watching: new drops from your Steam library are added automatically every 24 hours.') + prioritizeNote;
+    } else if (settings.steam_configured) {
+        statusEl.textContent = (s.steam_status_linked ||
+            'Steam library linked. Use "Import from Steam" to add games with active drops.') + prioritizeNote;
+    } else {
+        statusEl.textContent = '';
+    }
+}
+
+function steamErrorText(code) {
+    const s = state.translations.gui?.settings || {};
+    const messages = {
+        missing_api_key: s.steam_error_missing_key || 'Enter your Steam Web API key.',
+        invalid_steam_id: s.steam_error_invalid_id || 'Enter a valid 17-digit SteamID64.',
+        invalid_api_key: s.steam_error_invalid_key || 'Steam rejected that API key.',
+        steam_unreachable: s.steam_error_unreachable || 'Could not reach Steam. Check your connection.',
+        steam_unavailable: s.steam_error_unavailable || 'Steam is unavailable right now. Try again later.'
+    };
+    return messages[code] || (s.steam_error_generic || 'Could not import your Steam library.');
+}
+
+const STEAM_MINUTE_STEP = 5;
+
+function formatSteamHour(hour) {
+    const period = hour < 12 ? 'AM' : 'PM';
+    const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+    return `${hour12} ${period}`;
+}
+
+function formatSteamNextRun(iso, timeZone) {
+    try {
+        const formatter = new Intl.DateTimeFormat(undefined, {
+            timeZone: timeZone || undefined,
+            weekday: 'short', month: 'short', day: 'numeric',
+            hour: 'numeric', minute: '2-digit'
+        });
+        return formatter.format(new Date(iso)) + (timeZone ? ` (${timeZone})` : '');
+    } catch (error) {
+        return new Date(iso).toLocaleString();
+    }
+}
+
+function getSteamSyncTime() {
+    const hour = document.getElementById('steam-sync-hour')?.value;
+    const minute = document.getElementById('steam-sync-minute')?.value;
+    if (hour === undefined || minute === undefined) {
+        return state.settings.steam_sync_time || '00:05';
+    }
+    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+function populateSteamScheduleControls(settings) {
+    const hourSelect = document.getElementById('steam-sync-hour');
+    const minuteSelect = document.getElementById('steam-sync-minute');
+    const tzSelect = document.getElementById('steam-sync-timezone');
+    if (!hourSelect || !minuteSelect || !tzSelect) return;
+
+    if (hourSelect.options.length === 0) {
+        for (let hour = 0; hour < 24; hour++) {
+            hourSelect.append(makeElement('option', { value: String(hour) }, formatSteamHour(hour)));
+        }
+    }
+    if (minuteSelect.options.length === 0) {
+        for (let minute = 0; minute < 60; minute += STEAM_MINUTE_STEP) {
+            const label = String(minute).padStart(2, '0');
+            minuteSelect.append(makeElement('option', { value: label }, label));
+        }
+    }
+
+    const zones = Array.isArray(settings.steam_timezones) ? settings.steam_timezones : [];
+    tzSelect.replaceChildren();
+    zones.forEach(zone => {
+        tzSelect.append(makeElement('option', { value: zone }, zone.replace(/_/g, ' ')));
+    });
+
+    const [hourPart, minutePart] = String(settings.steam_sync_time || '00:05').split(':');
+    hourSelect.value = String(parseInt(hourPart, 10) || 0);
+    const minute = String(parseInt(minutePart, 10) || 0).padStart(2, '0');
+    if (!Array.from(minuteSelect.options).some(option => option.value === minute)) {
+        minuteSelect.append(makeElement('option', { value: minute }, minute));
+    }
+    minuteSelect.value = minute;
+
+    if (settings.steam_sync_timezone) {
+        if (!Array.from(tzSelect.options).some(option => option.value === settings.steam_sync_timezone)) {
+            tzSelect.append(makeElement('option', { value: settings.steam_sync_timezone }, settings.steam_sync_timezone));
+        }
+        tzSelect.value = settings.steam_sync_timezone;
+    }
+}
+
+function updateSteamScheduleUI(settings) {
+    const autoToggle = document.getElementById('steam-auto-watch-toggle');
+    if (autoToggle) autoToggle.checked = settings.steam_auto_watch === true;
+    const prioritizeToggle = document.getElementById('steam-prioritize-toggle');
+    if (prioritizeToggle) prioritizeToggle.checked = settings.steam_prioritize === true;
+    populateSteamScheduleControls(settings);
+
+    const nextRunEl = document.getElementById('steam-next-run');
+    if (!nextRunEl) return;
+    if (!settings.steam_configured) {
+        nextRunEl.textContent = 'Link Steam first with "Import from Steam".';
+    } else if (!settings.steam_auto_watch) {
+        nextRunEl.textContent = 'Automatic daily check is off.';
+    } else if (settings.steam_next_run) {
+        nextRunEl.textContent = 'Next automatic check: ' +
+            formatSteamNextRun(settings.steam_next_run, settings.steam_sync_timezone);
+    } else {
+        nextRunEl.textContent = '';
+    }
+}
+
+function steamImportInstructionItems(s) {
+    return [
+        s.steam_step_id64 || 'SteamID64: open steamid.io, paste your Steam profile link, and copy the 17-digit "steamID64" value.',
+        s.steam_step_api_key || 'API key: open steamcommunity.com/dev/apikey, sign in, enter any name for the domain (e.g. localhost), and copy the key.',
+        s.steam_step_public || 'Make your games visible: Steam → your profile → Edit Profile → Privacy Settings → set "Game details" to Public.',
+        s.steam_step_fetch || 'Click "Fetch library" below to find owned games that currently have Twitch drops.',
+        s.steam_step_add || 'Click "Add games" to add those games to Games to Watch.'
+    ];
+}
+
+function showSteamImportModal() {
+    if (document.querySelector('.modal-overlay')) return;
+    const s = state.translations.gui?.settings || {};
+    const previousFocus = document.activeElement;
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    const modal = document.createElement('div');
+    modal.className = 'modal-box steam-modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', 'steam-modal-title');
+
+    const instructions = makeElement('ol', { class: 'steam-steps' }, null, list => {
+        steamImportInstructionItems(s).forEach(text => {
+            list.append(makeElement('li', {}, text));
+        });
+    });
+
+    const idInput = makeElement('input', {
+        type: 'text', id: 'steam-id64-input', class: 'steam-input',
+        inputmode: 'numeric', autocomplete: 'off', placeholder: '7656119XXXXXXXXXX'
+    });
+    idInput.value = state.settings.steam_id64 || '';
+    const keyInput = makeElement('input', {
+        type: 'password', id: 'steam-key-input', class: 'steam-input', autocomplete: 'off'
+    });
+    keyInput.placeholder = state.settings.steam_configured
+        ? '••••••••'
+        : (s.steam_api_key_placeholder || 'Paste your Steam Web API key');
+
+    const autoCheckbox = makeElement('input', { type: 'checkbox', id: 'steam-auto-watch-input' });
+    autoCheckbox.checked = state.settings.steam_auto_watch === true;
+    const autoLabel = makeElement('label', { class: 'steam-auto-label' }, null, label => {
+        label.append(autoCheckbox, makeElement('span', {},
+            s.steam_auto_watch || 'Automatically add new drops daily (hands-off)'));
+    });
+
+    const prioritizeCheckbox = makeElement('input', { type: 'checkbox', id: 'steam-prioritize-input' });
+    prioritizeCheckbox.checked = state.settings.steam_prioritize === true;
+    const prioritizeLabel = makeElement('label', { class: 'steam-auto-label' }, null, label => {
+        label.append(prioritizeCheckbox, makeElement('span', {},
+            s.steam_prioritize || 'Prioritize my Steam games (most-played owned games first, refreshed daily)'));
+    });
+
+    const status = makeElement('p', {
+        class: 'help-text steam-modal-status', role: 'status', 'aria-live': 'polite'
+    });
+    const results = makeElement('div', { class: 'steam-results' });
+
+    const fetchBtn = makeElement('button', { class: 'primary-btn' },
+        s.steam_fetch || 'Fetch library');
+    const addBtn = makeElement('button', { class: 'primary-btn' },
+        s.steam_add || 'Add games');
+    addBtn.hidden = true;
+    const cancelBtn = makeElement('button', { class: 'secondary-btn' }, s.cancel_btn || 'Cancel');
+    const buttons = makeElement('div', { class: 'modal-buttons' });
+    buttons.append(cancelBtn, fetchBtn, addBtn);
+
+    modal.append(
+        makeElement('h2', { id: 'steam-modal-title' }, s.steam_import_title || 'Import from Steam'),
+        makeElement('p', { class: 'help-text' }, s.steam_import_help ||
+            'Import the games you own on Steam that currently have Twitch drops. Do the following once:'),
+        instructions,
+        makeElement('label', { class: 'steam-field-label', for: 'steam-id64-input' },
+            s.steam_id_label || 'SteamID64 (17 digits)'),
+        idInput,
+        makeElement('p', { class: 'steam-field-help' }, s.steam_id_help ||
+            'Find it at steamid.io: paste your Steam profile link and copy the "steamID64" number.'),
+        makeElement('label', { class: 'steam-field-label', for: 'steam-key-input' },
+            s.steam_api_key_label || 'Steam Web API Key'),
+        keyInput,
+        makeElement('p', { class: 'steam-field-help' }, s.steam_api_key_help ||
+            'Get a free key at steamcommunity.com/dev/apikey (any domain name works).'),
+        autoLabel,
+        prioritizeLabel,
+        status,
+        results,
+        buttons,
+    );
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => {
+        overlay.style.opacity = '1';
+        modal.style.transform = 'scale(1)';
+    });
+    idInput.focus();
+
+    let matched = [];
+    let closed = false;
+    const close = () => {
+        if (closed) return;
+        closed = true;
+        overlay.remove();
+        if (previousFocus?.isConnected) previousFocus.focus();
+    };
+    cancelBtn.onclick = close;
+    overlay.addEventListener('keydown', event => {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            close();
+        }
+    });
+
+    fetchBtn.onclick = async () => {
+        status.classList.remove('error');
+        status.textContent = s.steam_fetching || 'Fetching your Steam library…';
+        results.replaceChildren();
+        addBtn.hidden = true;
+        addBtn.disabled = true;
+        fetchBtn.disabled = true;
+        matched = [];
+        try {
+            const response = await fetch('/api/steam/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    steam_id64: idInput.value.trim(),
+                    steam_api_key: keyInput.value.trim()
+                })
+            });
+            const data = await response.json();
+            if (!data.success) {
+                status.textContent = steamErrorText(data.error);
+                status.classList.add('error');
+                return;
+            }
+            matched = Array.isArray(data.matched) ? data.matched : [];
+            if (matched.length === 0) {
+                status.textContent = (s.steam_no_matches ||
+                    'None of your {owned} owned games currently have Twitch drops.')
+                    .replace('{owned}', data.owned_count);
+                return;
+            }
+            status.textContent = (s.steam_found || 'Found {count} owned game(s) with active drops.')
+                .replace('{count}', matched.length);
+            matched.forEach(name => results.append(
+                makeElement('div', { class: 'steam-result-item' }, name)));
+            addBtn.textContent = (s.steam_add || 'Add {count} game(s) to watch')
+                .replace('{count}', matched.length);
+            addBtn.hidden = false;
+            addBtn.disabled = false;
+        } catch (error) {
+            status.textContent = s.steam_error_generic || 'Could not import your Steam library.';
+            status.classList.add('error');
+        } finally {
+            fetchBtn.disabled = false;
+        }
+    };
+
+    addBtn.onclick = async () => {
+        status.classList.remove('error');
+        status.textContent = s.steam_importing || 'Importing…';
+        addBtn.disabled = true;
+        try {
+            const response = await fetch('/api/steam/import', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    steam_id64: idInput.value.trim(),
+                    steam_api_key: keyInput.value.trim(),
+                    steam_auto_watch: autoCheckbox.checked,
+                    steam_prioritize: prioritizeCheckbox.checked
+                })
+            });
+            const data = await response.json();
+            if (!data.success) {
+                status.textContent = steamErrorText(data.error);
+                status.classList.add('error');
+                addBtn.disabled = false;
+                return;
+            }
+            if (data.settings) updateSettingsUI(data.settings);
+            showToast((s.steam_imported || 'Added {count} game(s) from your Steam library.')
+                .replace('{count}', data.added), 'success');
+            close();
+        } catch (error) {
+            status.textContent = s.steam_error_generic || 'Could not import your Steam library.';
+            status.classList.add('error');
+            addBtn.disabled = false;
+        }
+    };
+}
+
 function flashTitle() {
     const originalTitle = document.title;
     let count = 0;
@@ -2010,6 +2328,15 @@ async function saveSettings() {
             document.getElementById('drop-name-blacklist')?.value
         ),
         inventory_filters: getInventoryFilters(),
+        steam_id64: state.settings.steam_id64 || '',
+        steam_api_key: state.settings.steam_api_key || '',
+        steam_auto_watch: document.getElementById('steam-auto-watch-toggle')?.checked
+            ?? (state.settings.steam_auto_watch === true),
+        steam_prioritize: document.getElementById('steam-prioritize-toggle')?.checked
+            ?? (state.settings.steam_prioritize === true),
+        steam_sync_time: getSteamSyncTime(),
+        steam_sync_timezone: document.getElementById('steam-sync-timezone')?.value
+            || state.settings.steam_sync_timezone || 'America/Chicago',
         mining_benefits: {
             "DIRECT_ENTITLEMENT": document.getElementById('mining-benefit-item')?.checked,
             "BADGE": document.getElementById('mining-benefit-badge')?.checked,
@@ -2258,6 +2585,9 @@ function applyTranslations(t) {
 
         const addGameBtn = document.getElementById('add-game-btn');
         if (addGameBtn && t.gui.settings.add_game) addGameBtn.textContent = t.gui.settings.add_game;
+
+        const steamImportBtn = document.getElementById('steam-import-btn');
+        if (steamImportBtn && t.gui.settings.steam_import) steamImportBtn.textContent = t.gui.settings.steam_import;
 
         const selectedGamesHeader = settingsTab.querySelector('.selected-games h3');
         if (selectedGamesHeader) selectedGamesHeader.textContent = t.gui.settings.selected_games;
@@ -2674,6 +3004,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('select-all-btn').addEventListener('click', selectAllGames);
     document.getElementById('deselect-all-btn').addEventListener('click', deselectAllGames);
     document.getElementById('add-game-btn').addEventListener('click', addGameFromSearch);
+    document.getElementById('steam-import-btn')?.addEventListener('click', showSteamImportModal);
     document.getElementById('games-filter').addEventListener('input', renderGamesToWatch);
     document.getElementById('games-filter').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
@@ -2681,6 +3012,13 @@ document.addEventListener('DOMContentLoaded', () => {
             addGameFromSearch();
         }
     });
+
+    // Steam auto-check schedule (constrained to valid choices)
+    document.getElementById('steam-auto-watch-toggle')?.addEventListener('change', saveSettings);
+    document.getElementById('steam-prioritize-toggle')?.addEventListener('change', saveSettings);
+    document.getElementById('steam-sync-hour')?.addEventListener('change', saveSettings);
+    document.getElementById('steam-sync-minute')?.addEventListener('change', saveSettings);
+    document.getElementById('steam-sync-timezone')?.addEventListener('change', saveSettings);
 
     // Inventory filters
     document.getElementById('filter-active').addEventListener('change', onInventoryFilterChange);
@@ -2783,6 +3121,21 @@ function renderWantedItems(tree) {
                 el.appendChild(makeElement('div', { class: 'wanted-card-header' }, '', h =>
                     h.appendChild(makeElement('a', { href: campaign.url, target: '_blank', rel: 'noopener noreferrer', class: 'wanted-card-campaign-link', title: campaign.name }, campaign.name))
                 ));
+                if (campaign.needs_account_link) {
+                    const t = state.translations.gui?.wanted || {};
+                    el.appendChild(makeElement('div', { class: 'wanted-link-warning' }, '', w => {
+                        w.appendChild(makeElement('span', { class: 'wanted-link-warning-text' },
+                            t.need_account_link || 'NEED TO CONNECT ACCOUNT TO GET DROPS'));
+                        if (campaign.link_url) {
+                            w.appendChild(makeElement('a', {
+                                href: campaign.link_url,
+                                target: '_blank',
+                                rel: 'noopener noreferrer',
+                                class: 'wanted-link-warning-btn'
+                            }, t.connect_account || 'Connect account'));
+                        }
+                    }));
+                }
                 el.appendChild(makeElement('div', { class: 'wanted-card-body' }, '', b =>
                     b.appendChild(dropContainer)
                 ));
