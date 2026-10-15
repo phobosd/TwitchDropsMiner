@@ -966,6 +966,50 @@ header h1 {
     background: #c0392b;
 }
 
+.wanted-purchase-note {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 10px 0;
+    padding: 6px 8px;
+    border: 1px solid #e0a020;
+    border-radius: 4px;
+    background: rgba(224, 160, 32, 0.14);
+}
+
+.wanted-purchase-note-text {
+    color: #ffcc55;
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.3px;
+}
+
+.wanted-purchase-note-btn {
+    margin-left: auto;
+    background: #e0a020;
+    color: #1a1a1a;
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.wanted-purchase-note-btn:hover {
+    background: #c88a12;
+}
+
+.wanted-purchase-pill {
+    background: rgba(224, 160, 32, 0.18);
+    color: #ffcc55;
+    padding: 1px 5px;
+    border-radius: 8px;
+    font-size: 10px;
+    font-weight: 600;
+}
+
 .wanted-drop-item {
     font-size: 11px;
     margin-bottom: 4px;

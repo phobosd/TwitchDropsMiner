@@ -15,6 +15,7 @@ Steam API key never leaves your own machine/container.
 - [Automatic daily check](#automatic-daily-check)
 - [Prioritize by hours played](#prioritize-by-hours-played)
 - [Unlinked campaigns in the queue](#unlinked-campaigns-in-the-queue)
+- [Purchase / subscription rewards](#purchase--subscription-rewards)
 - [Running this fork](#running-this-fork)
 - [Where settings are stored](#where-settings-are-stored)
 - [Privacy and security](#privacy-and-security)
@@ -28,6 +29,7 @@ Steam API key never leaves your own machine/container.
 | Automatic daily check | Settings → **Steam Auto-Check** | Once a day at a time you pick, re-reads your library and adds any newly-available drops |
 | Prioritize by hours played | Settings → Steam Auto-Check | Keeps owned games above the rest, ordered by how much you've played them |
 | "Connect account" warning | Main → **Wanted Drop Queue** | Shows reward campaigns that need an account link, in red, with a link to connect |
+| Purchase / subscription rewards | Main → **Wanted Drop Queue** | Shown with a "purchase required" note and a link to participating channels (not mined) |
 
 The miner itself still only *mines* watch-time Drops. Campaigns that require a
 subscription/purchase, or that need an account link you haven't connected, are handled
@@ -108,8 +110,23 @@ still shows them so you know what you're missing:
 Once you connect the account and click **Reload**, the banner disappears and the
 campaign is mined normally.
 
-> Note: rewards that require a **purchase/subscription** (not watching) never appear in
-> the queue, because the miner only mines watch-time Drops.
+## Purchase / subscription rewards
+
+Some rewards can't be earned by watching at all — you have to buy or gift a
+subscription on a participating channel (Twitch shows these as "Subscribe to
+Redeem"). These now appear in the Wanted Drop Queue with an amber banner:
+
+- **"PURCHASE / SUBSCRIPTION REQUIRED"** on the campaign card.
+- A **Participating channels** button that opens the game's directory filtered to
+  channels with drops, so you can jump straight there and do the purchase.
+- The individual reward is tagged **PURCHASE**.
+
+Because these can't be earned by watching, they're shown **for information only** and
+are never mined.
+
+> Reminder: the miner only mines watch-time Drops. If a campaign has both watch and
+> purchase rewards, the watch rewards are mined normally and the purchase rewards show
+> the amber note.
 
 ## Running this fork
 
@@ -186,6 +203,7 @@ directly if needed:
 | `invalid_api_key` | The API key was mistyped or revoked — generate a new one |
 | `invalid_steam_id` | The SteamID64 isn't the 17-digit number (you may have pasted the vanity name) |
 | `steam_unreachable` / `steam_unavailable` | Temporary network or Steam outage — retry later |
-| A game with drops isn't in the queue | Its campaign needs an account link (see the red banner), or its reward is purchase-based, or you already claimed it |
+| A game with drops isn't in the queue | You already claimed all of its rewards, or its campaign hasn't started or has ended |
+| A card shows "PURCHASE REQUIRED" | That reward needs a paid subscription — use its "Participating channels" link; the miner can't earn it by watching |
 | Daily check didn't run at the time | The container was offline at that moment; it runs once it's back, and the "Next automatic check" line shows the schedule |
 | Games got reordered after a check | **Prioritize my Steam games** is on — turn it off to control order yourself |

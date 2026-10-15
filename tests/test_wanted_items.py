@@ -222,6 +222,52 @@ class TestWantedItems(unittest.TestCase):
             [],
         )
 
+    def test_purchase_reward_shown_in_queue_but_not_mined(self):
+        self.twitch.settings.games_to_watch = ["Street Fighter 6"]
+        self.twitch.settings.mining_benefits = {"EMOTE": True}
+
+        c = MagicMock(spec=DropsCampaign)
+        c.id = "c_sf6"
+        c.name = "SF6 Sub"
+        c.campaign_url = "http://camp"
+        c.game = Game({"id": 60, "name": "Street Fighter 6", "boxArtURL": "http://img"})
+        c.can_earn_within.return_value = True
+
+        d = MagicMock(spec=TimedDrop)
+        d.name = "SFGui Emote"
+        d.is_claimed = False
+        d.is_watch_drop = False
+        d.ends_at = datetime.max.replace(tzinfo=timezone.utc)
+        d.get_wanted_unclaimed_benefits = TimedDrop.get_wanted_unclaimed_benefits.__get__(
+            d, TimedDrop
+        )
+        b = MagicMock(spec=Benefit)
+        b.name = "SFGui Emote"
+        b.type = BenefitType.EMOTE
+        b.is_wanted = Benefit.is_wanted.__get__(b, Benefit)
+        d.benefits = [b]
+        c.drops = [d]
+
+        self.twitch.inventory = [c]
+
+        tree = self.gui.get_wanted_game_tree()
+        self.assertEqual(len(tree), 1)
+        campaigns = tree[0]["campaigns"]
+        self.assertEqual(len(campaigns), 1)
+        self.assertTrue(campaigns[0]["drops"][0].get("requires_purchase"))
+        self.assertEqual(
+            campaigns[0]["channels_url"],
+            "https://www.twitch.tv/directory/category/street-fighter-6?filter=drops",
+        )
+
+        # Not mined: the mining list is watch-drop only.
+        self.assertEqual(
+            self.gui._stream_selector.get_wanted_games(
+                self.twitch.settings, self.twitch.inventory
+            ),
+            [],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

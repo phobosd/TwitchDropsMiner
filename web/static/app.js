@@ -3136,6 +3136,19 @@ function renderWantedItems(tree) {
                         }
                     }));
                 }
+                if (campaign.channels_url) {
+                    const t = state.translations.gui?.wanted || {};
+                    el.appendChild(makeElement('div', { class: 'wanted-purchase-note' }, '', n => {
+                        n.appendChild(makeElement('span', { class: 'wanted-purchase-note-text' },
+                            t.purchase_required || 'PURCHASE / SUBSCRIPTION REQUIRED'));
+                        n.appendChild(makeElement('a', {
+                            href: campaign.channels_url,
+                            target: '_blank',
+                            rel: 'noopener noreferrer',
+                            class: 'wanted-purchase-note-btn'
+                        }, t.participating_channels || 'Participating channels'));
+                    }));
+                }
                 el.appendChild(makeElement('div', { class: 'wanted-card-body' }, '', b =>
                     b.appendChild(dropContainer)
                 ));
@@ -3144,6 +3157,10 @@ function renderWantedItems(tree) {
             campaign.drops.forEach(drop => {
                 const dropEl = makeElement('div', { class: 'wanted-drop-item' }, '', el => {
                     el.appendChild(makeElement('span', { class: 'wanted-drop-name' }, drop.name));
+                    if (drop.requires_purchase) {
+                        el.appendChild(makeElement('span', { class: 'wanted-purchase-pill' },
+                            state.translations.gui?.wanted?.purchase_pill || 'PURCHASE'));
+                    }
                     drop.benefits.forEach(benefit => {
                         el.appendChild(makeElement('span', { class: 'wanted-benefit-pill' }, benefit));
                     });

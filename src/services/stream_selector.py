@@ -11,16 +11,22 @@ class StreamSelector:
         settings: Settings,
         campaigns: list[DropsCampaign],
         *,
-        include_unlinked: bool = False,
+        for_display: bool = False,
     ) -> list[dict]:
         """
         Get the hierarchical tree of wanted items (Games -> Campaigns -> Drops -> Benefits).
         Ignoring 'can earn within' time constraint.
 
-        When ``include_unlinked`` is set (UI use), campaigns that are otherwise
-        earnable but missing an account link are still included, flagged with
-        ``needs_account_link`` and their ``link_url``. Mining uses the default
-        (eligible-only) path so unlinked campaigns are never watched.
+        When ``for_display`` is set (UI use) the tree also includes campaigns/drops
+        that the miner won't earn:
+
+        * campaigns that are otherwise earnable but need an account link, flagged
+          with ``needs_account_link`` and their ``link_url``;
+        * purchase/subscription rewards (no watch minutes), flagged with
+          ``requires_purchase``; their campaign carries a ``channels_url`` with the
+          participating-channels directory so the user can go buy/subscribe.
+
+        Mining keeps the eligible, watch-only path so these are never watched.
         """
         wanted_games = []
         games_to_watch = settings.games_to_watch
@@ -41,23 +47,28 @@ class StreamSelector:
                 if game_obj is None:
                     game_obj = campaign.game
 
-                if not campaign.can_earn_within(next_hour, ignore_eligibility=include_unlinked):
+                if not campaign.can_earn_within(next_hour, ignore_eligibility=for_display):
                     continue
 
                 wanted_drops = []
+                has_purchase_reward = False
                 for drop in campaign.drops:
                     if (
-                        not drop.is_watch_drop
-                        or drop.is_claimed
+                        drop.is_claimed
                         or drop.ends_at <= now
                         or not drop.is_mineable
+                        or (not drop.is_watch_drop and not for_display)
                     ):
                         continue
 
                     filtered_benefits = drop.get_wanted_unclaimed_benefits(mining_benefits)
 
                     if len(filtered_benefits) > 0:
-                        wanted_drops.append({"name": drop.name, "benefits": filtered_benefits})
+                        drop_node = {"name": drop.name, "benefits": filtered_benefits}
+                        if not drop.is_watch_drop:
+                            drop_node["requires_purchase"] = True
+                            has_purchase_reward = True
+                        wanted_drops.append(drop_node)
 
                 if len(wanted_drops) > 0:
                     node = {
@@ -68,9 +79,14 @@ class StreamSelector:
                     }
                     linked = getattr(campaign, "linked", None)
                     has_badge_or_emote = getattr(campaign, "has_badge_or_emote", None)
-                    if include_unlinked and linked is False and not has_badge_or_emote:
+                    if for_display and linked is False and not has_badge_or_emote:
                         node["needs_account_link"] = True
                         node["link_url"] = getattr(campaign, "link_url", "")
+                    if for_display and has_purchase_reward:
+                        slug = getattr(campaign.game, "slug", "")
+                        node["channels_url"] = (
+                            f"https://www.twitch.tv/directory/category/{slug}?filter=drops"
+                        )
                     wanted_campaigns.append(node)
 
             if len(wanted_campaigns) > 0:
@@ -91,7 +107,7 @@ class StreamSelector:
     ) -> list[dict]:
         return [
             {**game, "game_obj": None}
-            for game in self._get_wanted_game_tree(settings, campaigns, include_unlinked=True)
+            for game in self._get_wanted_game_tree(settings, campaigns, for_display=True)
         ]
 
     def get_wanted_games(self, settings: Settings, campaigns: list[DropsCampaign]) -> list[Game]:
