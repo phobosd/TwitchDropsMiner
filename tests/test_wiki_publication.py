@@ -15,6 +15,7 @@ PAGES = {
     "authentication.md": "Authentication", "usage.md": "Using-TDM",
     "dashboard-access.md": "Dashboard-access", "notifications.md": "Telegram-notifications",
     "troubleshooting.md": "Troubleshooting", "credits.md": "Credits",
+    "steam-integration.md": "Steam-integration",
 }
 WIKI = "https://github.com/owner/repo/wiki"
 
@@ -137,10 +138,10 @@ def test_export_ignores_personal_files_and_preserves_unrelated_wiki_pages(wiki, 
     output.mkdir()
     (output / "Community.md").write_text("keep this page", encoding="utf-8")
     exporter = wiki.WikiExporter(source, "owner/repo")
-    assert len(exporter.export(output)) == 9
+    assert len(exporter.export(output)) == 10
     assert exporter.export(output) == ()
     assert (output / "Community.md").read_text() == "keep this page"
-    assert len(list(output.iterdir())) == 10
+    assert len(list(output.iterdir())) == 11
     assert "do not publish" not in "".join(p.read_text() for p in output.iterdir())
     sidebar = (output / "_Sidebar.md").read_text()
     assert all(f"{WIKI}/{page}" in sidebar for page in PAGES.values())

@@ -1308,8 +1308,10 @@ function updateSettingsUI(settings) {
 
     // Update games to watch lists
     renderGamesToWatch();
-    updateSteamStatus(settings);
-    updateSteamScheduleUI(settings);
+    // Defined further down the file; guard so the isolated frontend test
+    // harnesses (which extract only a subset of functions) still run.
+    if (typeof updateSteamStatus === 'function') updateSteamStatus(settings);
+    if (typeof updateSteamScheduleUI === 'function') updateSteamScheduleUI(settings);
 
     // Re-render channels list to apply filter based on updated games to watch
     renderChannels();
@@ -2334,7 +2336,9 @@ async function saveSettings() {
             ?? (state.settings.steam_auto_watch === true),
         steam_prioritize: document.getElementById('steam-prioritize-toggle')?.checked
             ?? (state.settings.steam_prioritize === true),
-        steam_sync_time: getSteamSyncTime(),
+        steam_sync_time: (typeof getSteamSyncTime === 'function')
+            ? getSteamSyncTime()
+            : (state.settings.steam_sync_time || '00:05'),
         steam_sync_timezone: document.getElementById('steam-sync-timezone')?.value
             || state.settings.steam_sync_timezone || 'America/Chicago',
         mining_benefits: {

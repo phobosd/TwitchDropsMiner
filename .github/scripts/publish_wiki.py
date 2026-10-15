@@ -64,6 +64,7 @@ class WikiExporter:
         "authentication.md": "Authentication", "usage.md": "Using-TDM",
         "dashboard-access.md": "Dashboard-access", "notifications.md": "Telegram-notifications",
         "troubleshooting.md": "Troubleshooting", "credits.md": "Credits",
+        "steam-integration.md": "Steam-integration",
     }
     PRIVATE = {".dev-notes", "notes", "plans"}
 
