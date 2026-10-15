@@ -184,7 +184,7 @@ async def test_wanted_items_broadcast_preserves_synchronous_callers():
     )
 
 
-def test_wanted_queue_hides_subscription_drops_and_sub_only_campaigns():
+def test_wanted_queue_shows_subscription_drops_with_purchase_flag():
     sub_only = _campaign("sub-only", [_drop("sub", "Subscribe", 0)])
     mixed = _campaign(
         "mixed",
@@ -201,9 +201,24 @@ def test_wanted_queue_hides_subscription_drops_and_sub_only_campaigns():
     result = StreamSelector().get_wanted_game_tree(settings, [sub_only, mixed])
 
     assert len(result) == 1
-    assert [campaign["id"] for campaign in result[0]["campaigns"]] == ["mixed"]
-    assert [drop["name"] for drop in result[0]["campaigns"][0]["drops"]] == ["Watch"]
+    campaigns = {campaign["id"]: campaign for campaign in result[0]["campaigns"]}
+    assert set(campaigns) == {"sub-only", "mixed"}
+
+    sub_drop = campaigns["sub-only"]["drops"][0]
+    assert sub_drop["name"] == "Subscribe"
+    assert sub_drop["requires_purchase"] is True
+    assert campaigns["sub-only"]["channels_url"].endswith(
+        "/directory/category/test-game?filter=drops"
+    )
+
+    mixed_drops = campaigns["mixed"]["drops"]
+    assert [drop["name"] for drop in mixed_drops] == ["Subscribe", "Watch"]
+    assert mixed_drops[0]["requires_purchase"] is True
+
+    # The pure mining view still excludes subscription-only campaigns/drops.
     assert sub_only.can_earn_within(datetime.now(timezone.utc)) is False
+    mined = StreamSelector().get_wanted_games(settings, [sub_only, mixed])
+    assert len(mined) == 1
 
 
 def test_wanted_queue_hides_only_individually_expired_drops():

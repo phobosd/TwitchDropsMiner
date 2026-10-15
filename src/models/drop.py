@@ -135,6 +135,14 @@ class BaseDrop:
             and self.starts_at < stamp
         )
 
+    def _displayable_within(self, stamp: datetime) -> bool:
+        # Display-only: ignore mineability so purchase/sub rewards can be listed.
+        return (
+            not self.is_claimed
+            and self.ends_at > datetime.now(timezone.utc)
+            and self.starts_at < stamp
+        )
+
     def can_earn(self, channel: Channel | None = None, ignore_channel_status: bool = False) -> bool:
         return self._base_can_earn() and self.campaign._base_can_earn(
             channel, ignore_channel_status

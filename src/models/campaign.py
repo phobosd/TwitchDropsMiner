@@ -258,17 +258,30 @@ class DropsCampaign:
             drop._base_can_earn() for drop in self.drops
         )
 
-    def can_earn_within(self, stamp: datetime, *, ignore_eligibility: bool = False) -> bool:
+    def can_earn_within(
+        self,
+        stamp: datetime,
+        *,
+        ignore_eligibility: bool = False,
+        include_purchase: bool = False,
+    ) -> bool:
         # Same as can_earn, but doesn't check the channel
         # and uses a future timestamp to see if we can earn this campaign later.
         # ``ignore_eligibility`` lets the UI still surface campaigns that only
         # need an account link, so the user can be told to connect one.
+        # ``include_purchase`` additionally counts purchase/subscription rewards,
+        # which the miner can't earn but the UI lists for information.
+        def _drop_counts(drop) -> bool:
+            if include_purchase and not drop.is_watch_drop:
+                return drop._displayable_within(stamp)
+            return drop._can_earn_within(stamp)
+
         return (
             (ignore_eligibility or self.eligible)
             and self._valid
             and self.ends_at > datetime.now(timezone.utc)
             and self.starts_at < stamp
-            and any(drop._can_earn_within(stamp) for drop in self.drops)
+            and any(_drop_counts(drop) for drop in self.drops)
         )
 
     def bump_minutes(self, channel: Channel) -> None:

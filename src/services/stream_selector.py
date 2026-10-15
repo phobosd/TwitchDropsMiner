@@ -47,21 +47,32 @@ class StreamSelector:
                 if game_obj is None:
                     game_obj = campaign.game
 
-                if not campaign.can_earn_within(next_hour, ignore_eligibility=for_display):
+                if not campaign.can_earn_within(
+                    next_hour,
+                    ignore_eligibility=for_display,
+                    include_purchase=for_display,
+                ):
                     continue
 
                 wanted_drops = []
                 has_purchase_reward = False
                 for drop in campaign.drops:
-                    if (
-                        drop.is_claimed
-                        or drop.ends_at <= now
-                        or not drop.is_mineable
-                        or (not drop.is_watch_drop and not for_display)
-                    ):
+                    if drop.is_claimed or drop.ends_at <= now:
                         continue
 
-                    filtered_benefits = drop.get_wanted_unclaimed_benefits(mining_benefits)
+                    if drop.is_watch_drop:
+                        if not drop.is_mineable:
+                            continue
+                        filtered_benefits = drop.get_wanted_unclaimed_benefits(mining_benefits)
+                    else:
+                        # Purchase/subscription reward: display-only, not mineable.
+                        if not for_display:
+                            continue
+                        filtered_benefits = [
+                            benefit.name
+                            for benefit in drop.benefits
+                            if benefit.is_wanted(mining_benefits)
+                        ]
 
                     if len(filtered_benefits) > 0:
                         drop_node = {"name": drop.name, "benefits": filtered_benefits}

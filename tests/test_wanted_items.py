@@ -186,8 +186,9 @@ class TestWantedItems(unittest.TestCase):
         c.has_badge_or_emote = False
         c.link_url = "https://link.example/connect"
         c.can_earn_within = MagicMock(
-            side_effect=lambda stamp, ignore_eligibility=False: ignore_eligibility
-            or bool(c.linked)
+            side_effect=lambda stamp, ignore_eligibility=False, include_purchase=False: (
+                ignore_eligibility or bool(c.linked)
+            )
         )
 
         d = MagicMock(spec=TimedDrop)
