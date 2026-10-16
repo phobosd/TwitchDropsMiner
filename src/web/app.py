@@ -472,6 +472,23 @@ async def steam_import(request: SteamImportRequest):
     }
 
 
+@app.post("/api/steam/refresh")
+async def steam_refresh():
+    """Force an immediate Steam library re-scan, outside the daily schedule."""
+    from src.services.steam_watcher import SteamWatcher
+
+    if gui_manager is None:
+        raise HTTPException(status_code=503, detail="GUI not initialized")
+
+    watcher = SteamWatcher(
+        gui_manager.settings, diagnostics=getattr(twitch_client, "diagnostics", None)
+    )
+    result = await watcher.refresh()
+    if not result.get("success"):
+        return result
+    return {**result, "settings": gui_manager.settings.get_settings()}
+
+
 @app.get("/api/version")
 async def get_version():
     """Get current application version and check for updates"""

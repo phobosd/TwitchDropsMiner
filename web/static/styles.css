@@ -1990,6 +1990,10 @@ header h1 {
     gap: 8px;
 }
 
+.steam-actions {
+    margin-top: 14px;
+}
+
 .steam-input {
     width: 100%;
     padding: 10px;

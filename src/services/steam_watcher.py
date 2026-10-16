@@ -12,7 +12,7 @@ import contextlib
 import logging
 import re
 from datetime import datetime, timedelta, timezone, tzinfo
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from src.services.steam_service import SteamError, fetch_owned_games, match_available_games
@@ -21,6 +21,16 @@ from src.services.steam_service import SteamError, fetch_owned_games, match_avai
 if TYPE_CHECKING:
     from src.diagnostics import Diagnostics
     from src.web.managers.settings import SettingsManager
+
+
+class SteamRefreshResult(TypedDict, total=False):
+    """Outcome of a Steam library sync, suitable for the web API."""
+
+    success: bool
+    added: int
+    matched: list[str]
+    owned_count: int
+    error: str
 
 
 logger = logging.getLogger("TwitchDrops")
@@ -210,19 +220,29 @@ class SteamWatcher:
 
         Returns the number of games newly added to "Games to Watch".
         """
+        result = await self.refresh(now=now)
+        return result["added"] if result["success"] else 0
+
+    async def refresh(self, *, now: datetime | None = None) -> SteamRefreshResult:
+        """Run one library sync regardless of the daily schedule.
+
+        Used both by the scheduled check and by the dashboard's manual
+        "Check now" action. Returns a structured result so callers can report
+        success, the matched games, and any Steam error code.
+        """
         settings = self._settings()
         api_key = getattr(settings, "steam_api_key", "")
         steam_id64 = getattr(settings, "steam_id64", "")
         if not api_key or not steam_id64:
-            return 0
+            return {"success": False, "error": "missing_api_key"}
 
         try:
             owned = await fetch_owned_games(
                 api_key, steam_id64, diagnostics=self._diagnostics
             )
         except SteamError as exc:
-            logger.warning("Steam auto-watch skipped (%s)", exc.code)
-            return 0
+            logger.warning("Steam sync skipped (%s)", exc.code)
+            return {"success": False, "error": exc.code}
 
         names = [game.name for game in owned]
         playtime = {game.name: game.playtime_minutes for game in owned}
@@ -234,5 +254,10 @@ class SteamWatcher:
             last_sync=(now or datetime.now(timezone.utc)).isoformat(),
         )
         if added:
-            logger.info("Steam auto-watch added %d game(s) with active drops", added)
-        return added
+            logger.info("Steam sync added %d game(s) with active drops", added)
+        return {
+            "success": True,
+            "added": added,
+            "matched": matched,
+            "owned_count": len(owned),
+        }

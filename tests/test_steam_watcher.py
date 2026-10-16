@@ -176,6 +176,50 @@ class TestSteamWatcher(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(manager.import_calls, [])
         self.assertIsNone(manager.last_sync)
 
+    async def test_refresh_returns_structured_result(self):
+        from src.services.steam_service import OwnedSteamGame
+
+        manager = FakeSettingsManager(make_settings(), ["Game X", "Other"])
+        watcher = SteamWatcher(manager)
+        with patch(
+            "src.services.steam_watcher.fetch_owned_games",
+            AsyncMock(
+                return_value=[OwnedSteamGame("Game X", 300), OwnedSteamGame("Unknown", 0)]
+            ),
+        ):
+            result = await watcher.refresh(now=NOW)
+        self.assertTrue(result["success"])
+        self.assertEqual(result["added"], 1)
+        self.assertEqual(result["matched"], ["Game X"])
+        self.assertEqual(result["owned_count"], 2)
+        self.assertEqual(manager.last_sync, NOW.isoformat())
+
+    async def test_refresh_reports_missing_credentials(self):
+        manager = FakeSettingsManager(make_settings(steam_api_key=""), ["Game X"])
+        watcher = SteamWatcher(manager)
+        with patch(
+            "src.services.steam_watcher.fetch_owned_games", AsyncMock(return_value=[])
+        ) as fetch:
+            result = await watcher.refresh(now=NOW)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "missing_api_key")
+        fetch.assert_not_called()
+
+    async def test_refresh_returns_error_code_on_steam_failure(self):
+        from src.services.steam_service import SteamError
+
+        manager = FakeSettingsManager(make_settings(), ["Game X"])
+        watcher = SteamWatcher(manager)
+        with patch(
+            "src.services.steam_watcher.fetch_owned_games",
+            AsyncMock(side_effect=SteamError("steam_unreachable")),
+        ):
+            result = await watcher.refresh(now=NOW)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "steam_unreachable")
+        self.assertEqual(manager.import_calls, [])
+        self.assertIsNone(manager.last_sync)
+
 
 if __name__ == "__main__":
     unittest.main()

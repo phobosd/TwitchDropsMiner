@@ -1803,6 +1803,52 @@ function updateSteamScheduleUI(settings) {
     }
 }
 
+async function refreshSteamNow() {
+    const button = document.getElementById('steam-refresh-btn');
+    const statusEl = document.getElementById('steam-refresh-status');
+    if (!button || !statusEl) return;
+    const s = state.translations.gui?.settings || {};
+
+    if (state.settings && state.settings.steam_configured !== true) {
+        statusEl.classList.remove('error');
+        statusEl.textContent = s.steam_refresh_link_first ||
+            'Link Steam first with "Import from Steam".';
+        return;
+    }
+
+    button.disabled = true;
+    statusEl.classList.remove('error');
+    statusEl.textContent = s.steam_refreshing || 'Checking your Steam library…';
+    try {
+        const response = await fetch('/api/steam/refresh', { method: 'POST' });
+        const data = await response.json();
+        if (!data.success) {
+            statusEl.textContent = steamErrorText(data.error);
+            statusEl.classList.add('error');
+            return;
+        }
+        if (data.settings) updateSettingsUI(data.settings);
+        const added = Number(data.added) || 0;
+        const matched = Array.isArray(data.matched) ? data.matched : [];
+        if (added > 0) {
+            statusEl.textContent = (s.steam_refresh_added ||
+                'Check complete: added {count} new game(s) to Games to Watch.')
+                .replace('{count}', added);
+        } else if (matched.length === 0) {
+            statusEl.textContent = s.steam_refresh_no_matches ||
+                'Check complete: none of your owned games currently have Twitch drops.';
+        } else {
+            statusEl.textContent = s.steam_refresh_none_new ||
+                'Check complete: no new games to add.';
+        }
+    } catch (error) {
+        statusEl.textContent = s.steam_error_generic || 'Could not import your Steam library.';
+        statusEl.classList.add('error');
+    } finally {
+        button.disabled = false;
+    }
+}
+
 function steamImportInstructionItems(s) {
     return [
         s.steam_step_id64 || 'SteamID64: open steamid.io, paste your Steam profile link, and copy the 17-digit "steamID64" value.',
@@ -3023,6 +3069,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('steam-sync-hour')?.addEventListener('change', saveSettings);
     document.getElementById('steam-sync-minute')?.addEventListener('change', saveSettings);
     document.getElementById('steam-sync-timezone')?.addEventListener('change', saveSettings);
+    document.getElementById('steam-refresh-btn')?.addEventListener('click', refreshSteamNow);
 
     // Inventory filters
     document.getElementById('filter-active').addEventListener('change', onInventoryFilterChange);

@@ -285,6 +285,62 @@ class TestSteamEndpoints(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["success"])
         self.assertEqual(result["error"], "steam_unreachable")
 
+    async def test_refresh_endpoint_runs_import(self):
+        settings = _stored_settings(
+            steam_api_key="KEY",
+            steam_id64="76561198000000000",
+            games_to_watch=["NotOwned"],
+        )
+        gui = self._gui_manager(settings, ["Owned A"])
+        with (
+            patch.object(web_app, "gui_manager", gui),
+            patch(
+                "src.services.steam_watcher.fetch_owned_games",
+                AsyncMock(return_value=[OwnedSteamGame("Owned A", 5)]),
+            ),
+        ):
+            result = await web_app.steam_refresh()
+        await asyncio.sleep(0)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["added"], 1)
+        self.assertEqual(result["matched"], ["Owned A"])
+        self.assertEqual(result["owned_count"], 1)
+        self.assertEqual(settings.games_to_watch, ["NotOwned", "Owned A"])
+        self.assertEqual(result["settings"]["steam_owned_count"], 1)
+
+    async def test_refresh_endpoint_reports_unconfigured(self):
+        settings = _stored_settings()
+        gui = self._gui_manager(settings, ["Owned A"])
+        with (
+            patch.object(web_app, "gui_manager", gui),
+            patch(
+                "src.services.steam_watcher.fetch_owned_games", AsyncMock(return_value=[])
+            ) as fetch,
+        ):
+            result = await web_app.steam_refresh()
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "missing_api_key")
+        fetch.assert_not_called()
+
+    async def test_refresh_endpoint_surfaces_steam_errors(self):
+        from src.services.steam_service import SteamError
+
+        settings = _stored_settings(steam_api_key="KEY", steam_id64="76561198000000000")
+        gui = self._gui_manager(settings, [])
+        with (
+            patch.object(web_app, "gui_manager", gui),
+            patch(
+                "src.services.steam_watcher.fetch_owned_games",
+                AsyncMock(side_effect=SteamError("steam_unreachable")),
+            ),
+        ):
+            result = await web_app.steam_refresh()
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "steam_unreachable")
+
 
 if __name__ == "__main__":
     unittest.main()

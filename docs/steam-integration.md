@@ -26,7 +26,7 @@ Steam API key never leaves your own machine/container.
 | Feature | Where | What happens |
 | --- | --- | --- |
 | Import from Steam | Settings → Games to Watch → **Import from Steam** | Reads your owned Steam games and adds the ones that currently have Twitch Drops to Games to Watch |
-| Automatic daily check | Settings → **Steam Auto-Check** | Once a day at a time you pick, re-reads your library and adds any newly-available drops |
+| Automatic daily check | Settings → **Steam Auto-Check** | Once a day at a time you pick, re-reads your library and adds any newly-available drops; the **Check now** button does the same on demand |
 | Prioritize by hours played | Settings → Steam Auto-Check | Keeps owned games above the rest, ordered by how much you've played them |
 | "Connect account" warning | Main → **Wanted Drop Queue** | Shows reward campaigns that need an account link, in red, with a link to connect |
 | Purchase / subscription rewards | Main → **Wanted Drop Queue** | Shown with a "purchase required" note and a link to participating channels (not mined) |
@@ -73,11 +73,17 @@ In **Settings → Steam Auto-Check**:
 - **Time** uses two dropdowns (hour, and minutes in 5-minute steps) — no typing.
 - **Timezone** is a dropdown of common zones, so it can't be mistyped.
 - A **"Next automatic check: …"** line shows exactly when it will run next.
+- **Check now** re-reads your library immediately, without waiting for the schedule —
+  useful after buying a game or when you want to pick up a new drop right away.
 
 The job runs **once per day at the time you choose**, in the timezone you choose
 (default `00:05` / `America/Chicago`). It is anchored to the clock, so restarts and
 manual imports don't shift it. A manual import after the daily time simply counts as
 that day's check.
+
+**Check now** works even when the daily job is turned off, and it also counts as that
+day's check. It uses the same saved SteamID64 and API key; link Steam first with
+**Import from Steam**.
 
 Because the schedule is fixed, the "every 24 hours" behaviour is really "every day at
 this time". If the container is offline at that moment, the check runs shortly after it

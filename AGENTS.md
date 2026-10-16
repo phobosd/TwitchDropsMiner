@@ -491,6 +491,23 @@ progress to an ignored drop while the miner intentionally targets another reward
   Docker checks `/healthz`, not the protected `/api/status`. Recovery is local: stop the
   miner, restrict access, remove only `data/web_auth.json`, restart and set a new password.
 
+### Steam integration (this fork)
+
+- `src/services/steam_service.py` reads owned games from Steam's `IPlayerService/GetOwnedGames`
+  with forgiving name matching and raises `SteamError` with a machine-readable code.
+  `src/services/steam_watcher.py` owns the opt-in daily schedule and the shared sync routine.
+- `SteamWatcher.refresh()` runs one library sync regardless of schedule and returns a
+  structured `SteamRefreshResult` (`success`, `added`, `matched`, `owned_count`, or `error`).
+  `sync_now()` delegates to it and returns only the added count; `sync_if_due()` keeps the
+  enabled/configured/due gates. Keep the dashboard's manual action on this same routine so the
+  scheduled and on-demand paths cannot diverge.
+- `POST /api/steam/refresh` (dashboard auth/CSRF guarded) builds a transient `SteamWatcher`
+  from the stored settings and calls `refresh()`. It never echoes the stored Steam API key.
+  `tests/test_steam_api.py`, `tests/test_steam_watcher.py`, and
+  `tests/test_steam_refresh_frontend.py` cover the endpoint, the routine's success/error paths,
+  and the Settings **Check now** button. This fork's Steam UI strings use inline English
+  fallbacks rather than `lang/` keys, matching the surrounding feature.
+
 ### Drop Mining Mechanism
 
 - `Channel.send_watch()` polls the lowest-bandwidth HLS playlist and sends HEAD requests

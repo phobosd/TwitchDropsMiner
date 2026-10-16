@@ -45,8 +45,9 @@ see [diagnosis data](docs/troubleshooting.md#save-diagnosis-data).
 
 This fork adds an optional Steam integration: import the games you own on Steam that
 currently have Drops, keep your most-played games prioritized, re-check your library
-automatically once a day, and see a "Connect account" warning on campaigns that need
-an account link. It's entirely opt-in and configured in **Settings**.
+automatically once a day (or on demand with **Check now**), and see a "Connect account"
+warning on campaigns that need an account link. It's entirely opt-in and configured in
+**Settings**.
 
 Read the [Steam integration guide](docs/steam-integration.md) for setup and usage.
 
